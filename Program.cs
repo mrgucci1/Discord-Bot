@@ -1,75 +1,78 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
 using Discord;
-using Discord.Commands;
+using Discord.Interactions;
 using Discord.WebSocket;
+using DiscordBot.Services;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
-namespace Discord_Bot___Bob
+namespace DiscordBot;
+
+public class Program
 {
-    class Program
+    public static async Task Main(string[] args)
     {
-        static void Main(string[] args) => new Program().RunBotAsync().GetAwaiter().GetResult();
+        var configuration = new ConfigurationBuilder()
+            .SetBasePath(Directory.GetCurrentDirectory())
+            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+            .AddEnvironmentVariables(prefix: "DISCORD_")
+            .Build();
 
-        private DiscordSocketClient disClient;
-        private CommandService disCommands;
-        private IServiceProvider disServices;
+        var botToken = configuration["BOT_TOKEN"]
+            ?? Environment.GetEnvironmentVariable("DISCORD_BOT_TOKEN")
+            ?? throw new InvalidOperationException(
+                "Bot token not found. Set the DISCORD_BOT_TOKEN environment variable "
+                + "or add BOT_TOKEN to appsettings.json.");
 
-        public async Task RunBotAsync()
+        var socketConfig = new DiscordSocketConfig
         {
-            disClient = new DiscordSocketClient();
-            disCommands = new CommandService();
-            disServices = new ServiceCollection()
-                .AddSingleton(disClient)
-                .AddSingleton(disCommands)
-                .BuildServiceProvider();
+            GatewayIntents = GatewayIntents.Guilds
+                | GatewayIntents.GuildMessages
+                | GatewayIntents.GuildVoiceStates
+                | GatewayIntents.MessageContent,
+            LogLevel = LogSeverity.Info
+        };
 
-            string botToken = "";
+        var services = new ServiceCollection()
+            .AddLogging(builder => builder.AddConsole())
+            .AddSingleton(configuration)
+            .AddSingleton(socketConfig)
+            .AddSingleton<DiscordSocketClient>()
+            .AddSingleton<InteractionService>(sp =>
+                new InteractionService(sp.GetRequiredService<DiscordSocketClient>()))
+            .AddSingleton<InteractionHandler>()
+            .AddSingleton<MusicService>()
+            .BuildServiceProvider();
 
-            disClient.Log += DisClient_Log;
+        var client = services.GetRequiredService<DiscordSocketClient>();
+        var interactionService = services.GetRequiredService<InteractionService>();
+        var logger = services.GetRequiredService<ILogger<Program>>();
 
-            await RegisterCommandsAsync();
-
-            await disClient.LoginAsync(TokenType.Bot, botToken);
-
-            await disClient.StartAsync();
-
-            await Task.Delay(-1);
-        }
-
-        private Task DisClient_Log(LogMessage arg)
+        client.Log += msg =>
         {
-            Console.WriteLine(arg);
+            logger.LogInformation("{Message}", msg.ToString());
             return Task.CompletedTask;
-        }
+        };
 
-        public async Task RegisterCommandsAsync()
+        interactionService.Log += msg =>
         {
-            disClient.MessageReceived += HandleCommandAsync;
-            await disCommands.AddModulesAsync(Assembly.GetEntryAssembly(), disServices);
-        }
+            logger.LogInformation("{Message}", msg.ToString());
+            return Task.CompletedTask;
+        };
 
-        private async Task HandleCommandAsync(SocketMessage arg)
+        await services.GetRequiredService<InteractionHandler>().InitializeAsync();
+
+        client.Ready += async () =>
         {
-            var message = arg as SocketUserMessage;
-            var context = new SocketCommandContext(disClient, message);
-            if (message.Author.IsBot) return;
+            logger.LogInformation("Bot is ready! Registering slash commands...");
+            await interactionService.RegisterCommandsGloballyAsync();
+            logger.LogInformation("Slash commands registered.");
+        };
 
-            int argPos = 0;
-            if (message.HasStringPrefix(".", ref argPos))
-            {
-                var result = await disCommands.ExecuteAsync(context, argPos, disServices);
-                if (!result.IsSuccess) Console.WriteLine(result.ErrorReason);
+        await client.LoginAsync(TokenType.Bot, botToken);
+        await client.StartAsync();
 
-            }
-
-        }
+        await Task.Delay(Timeout.Infinite);
     }
-
-    
-
 }
