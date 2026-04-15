@@ -2,6 +2,7 @@ using System.Reflection;
 using Discord;
 using Discord.Interactions;
 using Discord.WebSocket;
+using Microsoft.Extensions.Logging;
 
 namespace DiscordBot.Services;
 
@@ -10,15 +11,18 @@ public class InteractionHandler
     private readonly DiscordSocketClient _client;
     private readonly InteractionService _interactions;
     private readonly IServiceProvider _services;
+    private readonly ILogger<InteractionHandler> _logger;
 
     public InteractionHandler(
         DiscordSocketClient client,
         InteractionService interactions,
-        IServiceProvider services)
+        IServiceProvider services,
+        ILogger<InteractionHandler> logger)
     {
         _client = client;
         _interactions = interactions;
         _services = services;
+        _logger = logger;
     }
 
     public async Task InitializeAsync()
@@ -34,7 +38,7 @@ public class InteractionHandler
 
         if (!result.IsSuccess)
         {
-            Console.WriteLine($"Interaction error: {result.ErrorReason}");
+            _logger.LogError("Interaction error: {ErrorReason}", result.ErrorReason);
 
             if (interaction.Type == InteractionType.ApplicationCommand)
             {

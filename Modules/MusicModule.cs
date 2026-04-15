@@ -27,6 +27,8 @@ public class MusicModule : InteractionModuleBase<SocketInteractionContext>
 
         await DeferAsync();
 
+        var wasAlreadyPlaying = _music.GetCurrentTrack(Context.Guild.Id) is not null;
+
         var track = await _music.PlayAsync(
             Context.Guild.Id,
             voiceChannel,
@@ -40,7 +42,7 @@ public class MusicModule : InteractionModuleBase<SocketInteractionContext>
         }
 
         var embed = new EmbedBuilder()
-            .WithTitle(_music.GetQueue(Context.Guild.Id).Count > 0 ? "📋 Added to Queue" : "🎵 Now Playing")
+            .WithTitle(wasAlreadyPlaying ? "📋 Added to Queue" : "🎵 Now Playing")
             .WithDescription($"[{track.Title}]({track.Url})")
             .AddField("Duration", track.Duration, inline: true)
             .AddField("Requested By", track.RequestedBy, inline: true)

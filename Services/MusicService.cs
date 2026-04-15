@@ -69,7 +69,17 @@ public class MusicService
         if (!state.IsPlaying)
         {
             state.VoiceChannel = voiceChannel;
-            _ = Task.Run(() => PlayQueueAsync(guildId, voiceChannel));
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await PlayQueueAsync(guildId, voiceChannel);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Unhandled error in music playback for guild {GuildId}", guildId);
+                }
+            });
         }
 
         return trackInfo;
