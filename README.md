@@ -11,6 +11,7 @@ A modern Discord bot built with **.NET 8** and **Discord.Net** featuring slash c
   - `/stop` — Stop playback and clear the queue
   - `/queue` — View the current music queue
   - `/nowplaying` — Show the currently playing track
+  - `/seek <seconds>` — Skip ahead in the current track by a number of seconds
 - **Fun Commands**
   - `/game <game1, game2, ...>` — Randomly pick a game from a comma-separated list
   - `/spam <text>` — Repeat a message 10 times

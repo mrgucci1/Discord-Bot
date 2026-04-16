@@ -31,7 +31,8 @@ public class Program
                 | GatewayIntents.GuildMessages
                 | GatewayIntents.GuildVoiceStates
                 | GatewayIntents.MessageContent,
-            LogLevel = LogSeverity.Info
+            LogLevel = LogSeverity.Info,
+            EnableVoiceDaveEncryption = true
         };
 
         var services = new ServiceCollection()

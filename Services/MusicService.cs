@@ -23,6 +23,8 @@ public sealed class GuildMusicState
     public TrackInfo? CurrentTrack { get; set; }
     public bool IsPlaying { get; set; }
     public bool IsSkipping { get; set; }
+    public bool IsSeeking { get; set; }
+    public int SeekSeconds { get; set; }
 }
 
 public class MusicService
@@ -96,6 +98,18 @@ public class MusicService
         return true;
     }
 
+    public bool Seek(ulong guildId, int seconds)
+    {
+        var state = GetOrCreateState(guildId);
+        if (!state.IsPlaying || state.CurrentTrack is null)
+            return false;
+
+        state.IsSeeking = true;
+        state.SeekSeconds = seconds;
+        state.CancellationTokenSource?.Cancel();
+        return true;
+    }
+
     public async Task StopAsync(ulong guildId)
     {
         var state = GetOrCreateState(guildId);
@@ -132,30 +146,50 @@ public class MusicService
             {
                 state.CurrentTrack = track;
                 state.IsSkipping = false;
+                state.IsSeeking = false;
+                state.SeekSeconds = 0;
                 state.CancellationTokenSource = new CancellationTokenSource();
 
                 _logger.LogInformation("Now playing: {Title}", track.Title);
 
-                try
+                var seekOffset = 0;
+                var keepPlaying = true;
+                while (keepPlaying)
                 {
-                    await StreamAudioAsync(
-                        state.AudioClient,
-                        track.Url,
-                        state.CancellationTokenSource.Token);
+                    try
+                    {
+                        await StreamAudioAsync(
+                            state.AudioClient,
+                            track.Url,
+                            seekOffset,
+                            state.CancellationTokenSource.Token);
+                        keepPlaying = false;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        if (state.IsSeeking)
+                        {
+                            seekOffset = state.SeekSeconds;
+                            state.IsSeeking = false;
+                            state.CancellationTokenSource.Dispose();
+                            state.CancellationTokenSource = new CancellationTokenSource();
+                            _logger.LogInformation("Seeking to {Seconds}s in: {Title}", seekOffset, track.Title);
+                        }
+                        else
+                        {
+                            _logger.LogInformation("Track skipped/stopped: {Title}", track.Title);
+                            keepPlaying = false;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error playing track: {Title}", track.Title);
+                        keepPlaying = false;
+                    }
                 }
-                catch (OperationCanceledException)
-                {
-                    _logger.LogInformation("Track skipped/stopped: {Title}", track.Title);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error playing track: {Title}", track.Title);
-                }
-                finally
-                {
-                    state.CancellationTokenSource.Dispose();
-                    state.CancellationTokenSource = null;
-                }
+
+                state.CancellationTokenSource?.Dispose();
+                state.CancellationTokenSource = null;
             }
         }
         catch (Exception ex)
@@ -186,21 +220,82 @@ public class MusicService
     private async Task StreamAudioAsync(
         IAudioClient audioClient,
         string url,
+        int seekSeconds,
         CancellationToken cancellationToken)
     {
-        var audioUrl = await GetAudioStreamUrlAsync(url);
-        if (string.IsNullOrEmpty(audioUrl))
-            throw new InvalidOperationException("Could not retrieve audio stream URL.");
+        var ytdlpArgs = $"-f bestaudio --no-playlist --no-warnings -o - \"{url}\"";
+        if (seekSeconds > 0)
+        {
+            ytdlpArgs = $"-f bestaudio --no-playlist --no-warnings --download-sections \"*{seekSeconds}-\" -o - \"{url}\"";
+        }
 
-        using var ffmpeg = StartFfmpeg(audioUrl);
-        await using var output = ffmpeg.StandardOutput.BaseStream;
+        using var ytdlp = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = @"C:\Users\dalqu\AppData\Local\Microsoft\WinGet\Packages\yt-dlp.yt-dlp_Microsoft.Winget.Source_8wekyb3d8bbwe\yt-dlp.exe",
+                Arguments = ytdlpArgs,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            }
+        };
+
+        using var ffmpeg = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = @"C:\Users\dalqu\AppData\Local\Microsoft\WinGet\Packages\yt-dlp.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-N-123778-g3b55818764-win64-gpl\bin\ffmpeg.exe",
+                Arguments = "-hide_banner -loglevel warning -i pipe:0 -ac 2 -f s16le -ar 48000 pipe:1",
+                UseShellExecute = false,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            }
+        };
+
+        ytdlp.Start();
+        ffmpeg.Start();
+
+        // Log ffmpeg stderr in background
+        _ = Task.Run(async () =>
+        {
+            var err = await ffmpeg.StandardError.ReadToEndAsync();
+            if (!string.IsNullOrWhiteSpace(err))
+                _logger.LogWarning("ffmpeg stderr: {Error}", err);
+        });
+
+        // Log yt-dlp stderr in background
+        _ = Task.Run(async () =>
+        {
+            var err = await ytdlp.StandardError.ReadToEndAsync();
+            if (!string.IsNullOrWhiteSpace(err))
+                _logger.LogWarning("yt-dlp stderr: {Error}", err);
+        });
+
+        // Pipe yt-dlp stdout to ffmpeg stdin in background
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await ytdlp.StandardOutput.BaseStream.CopyToAsync(ffmpeg.StandardInput.BaseStream, cancellationToken);
+            }
+            catch (OperationCanceledException) { }
+            finally
+            {
+                try { ffmpeg.StandardInput.Close(); } catch { }
+            }
+        });
+
         await using var discord = audioClient.CreatePCMStream(AudioApplication.Music);
 
         try
         {
             var buffer = new byte[4096];
             int bytesRead;
-            while ((bytesRead = await output.ReadAsync(buffer, cancellationToken)) > 0)
+            while ((bytesRead = await ffmpeg.StandardOutput.BaseStream.ReadAsync(buffer, cancellationToken)) > 0)
             {
                 await discord.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
             }
@@ -208,10 +303,8 @@ public class MusicService
         finally
         {
             await discord.FlushAsync(CancellationToken.None);
-            if (!ffmpeg.HasExited)
-            {
-                ffmpeg.Kill();
-            }
+            if (!ffmpeg.HasExited) ffmpeg.Kill();
+            if (!ytdlp.HasExited) ytdlp.Kill();
         }
     }
 
@@ -225,7 +318,7 @@ public class MusicService
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = "yt-dlp",
+                FileName = @"C:\Users\dalqu\AppData\Local\Microsoft\WinGet\Packages\yt-dlp.yt-dlp_Microsoft.Winget.Source_8wekyb3d8bbwe\yt-dlp.exe",
                 Arguments = $"--print title --print webpage_url --print duration_string " +
                             $"--no-playlist --no-warnings -f bestaudio \"{searchQuery}\"",
                 UseShellExecute = false,
@@ -267,7 +360,7 @@ public class MusicService
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = "yt-dlp",
+                FileName = @"C:\Users\dalqu\AppData\Local\Microsoft\WinGet\Packages\yt-dlp.yt-dlp_Microsoft.Winget.Source_8wekyb3d8bbwe\yt-dlp.exe",
                 Arguments = $"-f bestaudio --get-url --no-playlist --no-warnings \"{url}\"",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -289,7 +382,7 @@ public class MusicService
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = "ffmpeg",
+                FileName = @"C:\Users\dalqu\AppData\Local\Microsoft\WinGet\Packages\yt-dlp.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-N-123778-g3b55818764-win64-gpl\bin\ffmpeg.exe",
                 Arguments = $"-hide_banner -loglevel panic -reconnect 1 -reconnect_streamed 1 " +
                             $"-reconnect_delay_max 5 -i \"{audioUrl}\" " +
                             $"-ac 2 -f s16le -ar 48000 pipe:1",

@@ -133,4 +133,33 @@ public class MusicModule : InteractionModuleBase<SocketInteractionContext>
 
         await RespondAsync(embed: embed);
     }
+
+    [SlashCommand("seek", "Seek to a position in the current track")]
+    public async Task SeekAsync(
+        [Summary(description: "Position in seconds to seek to")] int seconds)
+    {
+        var track = _music.GetCurrentTrack(Context.Guild.Id);
+        if (track is null)
+        {
+            await RespondAsync("❌ Nothing is currently playing!", ephemeral: true);
+            return;
+        }
+
+        if (seconds < 0)
+        {
+            await RespondAsync("❌ Position must be a positive number.", ephemeral: true);
+            return;
+        }
+
+        var seeked = _music.Seek(Context.Guild.Id, seconds);
+        if (seeked)
+        {
+            var ts = TimeSpan.FromSeconds(seconds);
+            await RespondAsync($"⏩ Seeking to **{ts:m\\:ss}** in **{track.Title}**");
+        }
+        else
+        {
+            await RespondAsync("❌ Could not seek.", ephemeral: true);
+        }
+    }
 }

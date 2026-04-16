@@ -20,5 +20,6 @@ obj/
 Thumbs.db
 
 ## Secrets
+appsettings.json
 appsettings.Development.json
 appsettings.Local.json
