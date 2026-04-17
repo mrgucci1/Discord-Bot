@@ -20,6 +20,50 @@ A modern Discord bot built with **.NET 8** and **Discord.Net** featuring slash c
 
 ---
 
+## Quick Start (Raspberry Pi / Debian / Ubuntu) — one command
+
+If you're on a Raspberry Pi or any Debian/Ubuntu machine, a single script
+installs every prerequisite (.NET 8 SDK, FFmpeg, yt-dlp, Node.js, PM2),
+prompts for your Discord bot token, builds the bot, and launches it under
+[PM2](https://pm2.keymetrics.io/) so it restarts on crash and on reboot:
+
+```bash
+git clone https://github.com/mrgucci1/Discord-Bot.git
+cd Discord-Bot
+chmod +x setup.sh
+./setup.sh
+```
+
+That's it. When it finishes:
+
+```bash
+pm2 status                # is it running?
+pm2 logs discord-bot      # tail the logs
+pm2 restart discord-bot   # restart after code changes
+pm2 stop discord-bot      # stop the bot
+pm2 startup               # run the printed command to auto-start on boot
+pm2 save                  # persist the running app list
+```
+
+**Supported hardware** (script auto-detects architecture):
+- Raspberry Pi 3 / 4 / 5 (64-bit Raspberry Pi OS recommended) — `arm64`
+- Raspberry Pi Zero 2 W (64-bit OS) — `arm64`
+- Older 32-bit Pis — `arm` (ARMv7)
+- Any x86_64 Debian/Ubuntu server or desktop
+
+**Updating later:**
+
+```bash
+git pull
+dotnet publish -c Release -o publish
+pm2 restart discord-bot --update-env
+```
+
+If you'd prefer to install the prerequisites yourself, see the
+[manual setup](#prerequisites) below.
+
+---
+
 ## Prerequisites
 
 Before you can run the bot, you need the following installed on your system:
@@ -149,7 +193,35 @@ Slash commands registered.
 
 ## Hosting in Production
 
-### Option 1: Run as a systemd Service (Linux)
+### Option 1: PM2 (recommended — works great on a Raspberry Pi)
+
+PM2 is a Node.js-based process manager that keeps the bot alive across
+crashes and reboots. The repo ships a ready-to-use `ecosystem.config.js`.
+
+```bash
+# One-time (only if you didn't use setup.sh)
+sudo npm install -g pm2
+
+# Build a release bundle
+dotnet publish -c Release -o publish
+
+# Start under PM2
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup     # follow the printed command to enable auto-start on boot
+```
+
+Logs go to `./logs/out.log` and `./logs/err.log`. Common commands:
+
+```bash
+pm2 status
+pm2 logs discord-bot
+pm2 restart discord-bot --update-env   # pick up new env vars / new build
+pm2 stop discord-bot
+pm2 delete discord-bot
+```
+
+### Option 2: Run as a systemd Service (Linux)
 
 Create a service file at `/etc/systemd/system/discord-bot.service`:
 
@@ -179,7 +251,7 @@ sudo systemctl start discord-bot
 sudo systemctl status discord-bot
 ```
 
-### Option 2: Docker
+### Option 3: Docker
 
 Create a `Dockerfile`:
 
@@ -203,7 +275,7 @@ docker build -t discord-bot .
 docker run -d -e DISCORD_BOT_TOKEN=your-bot-token-here --name discord-bot discord-bot
 ```
 
-### Option 3: Cloud Hosting
+### Option 4: Cloud Hosting
 
 The bot can run on any cloud provider that supports .NET 8:
 
@@ -228,6 +300,8 @@ Discord-Bot/
 ├── Services/
 │   ├── InteractionHandler.cs # Slash command routing
 │   └── MusicService.cs       # YouTube audio streaming logic
+├── ecosystem.config.js       # PM2 process config (production hosting)
+├── setup.sh                  # One-shot installer for Pi / Debian / Ubuntu
 ├── README.md
 └── .gitignore
 ```
@@ -240,9 +314,12 @@ Discord-Bot/
 |-------|----------|
 | Slash commands don't appear | Wait up to 1 hour for global registration, or register per-guild for instant updates |
 | Bot can't play music | Ensure `ffmpeg` and `yt-dlp` are installed and in your system PATH |
+| `ffmpeg` / `yt-dlp` not on PATH | Set `FFMPEG_PATH` and/or `YTDLP_PATH` env vars to the absolute binary paths |
 | "Bot token not found" error | Set the `DISCORD_BOT_TOKEN` environment variable or create `appsettings.json` |
 | Bot doesn't join voice channel | Ensure the bot has **Connect** and **Speak** permissions in the voice channel |
 | Audio cuts out or stutters | Check your network connection and server resources; the bot needs a stable connection |
+| PM2 doesn't restart on reboot | Run `pm2 startup` and follow the printed command, then `pm2 save` |
+| Raspberry Pi build fails | Make sure you're on 64-bit Pi OS for Pi 3/4/5; the 32-bit ARM SDK is also supported by `setup.sh` |
 
 ## License
 

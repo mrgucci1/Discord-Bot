@@ -32,6 +32,14 @@ public class MusicService
     private readonly ConcurrentDictionary<ulong, GuildMusicState> _guildStates = new();
     private readonly ILogger<MusicService> _logger;
 
+    // Resolve executables from env vars (YTDLP_PATH / FFMPEG_PATH) or fall back to
+    // the binary name, which relies on the system PATH. This keeps the bot portable
+    // across Windows, Linux, macOS, and Raspberry Pi (ARM).
+    private static readonly string YtDlpPath =
+        Environment.GetEnvironmentVariable("YTDLP_PATH") ?? "yt-dlp";
+    private static readonly string FfmpegPath =
+        Environment.GetEnvironmentVariable("FFMPEG_PATH") ?? "ffmpeg";
+
     public MusicService(ILogger<MusicService> logger)
     {
         _logger = logger;
@@ -233,7 +241,7 @@ public class MusicService
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = @"C:\Users\dalqu\AppData\Local\Microsoft\WinGet\Packages\yt-dlp.yt-dlp_Microsoft.Winget.Source_8wekyb3d8bbwe\yt-dlp.exe",
+                FileName = YtDlpPath,
                 Arguments = ytdlpArgs,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -246,7 +254,7 @@ public class MusicService
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = @"C:\Users\dalqu\AppData\Local\Microsoft\WinGet\Packages\yt-dlp.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-N-123778-g3b55818764-win64-gpl\bin\ffmpeg.exe",
+                FileName = FfmpegPath,
                 Arguments = "-hide_banner -loglevel warning -i pipe:0 -ac 2 -f s16le -ar 48000 pipe:1",
                 UseShellExecute = false,
                 RedirectStandardInput = true,
@@ -318,7 +326,7 @@ public class MusicService
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = @"C:\Users\dalqu\AppData\Local\Microsoft\WinGet\Packages\yt-dlp.yt-dlp_Microsoft.Winget.Source_8wekyb3d8bbwe\yt-dlp.exe",
+                FileName = YtDlpPath,
                 Arguments = $"--print title --print webpage_url --print duration_string " +
                             $"--no-playlist --no-warnings -f bestaudio \"{searchQuery}\"",
                 UseShellExecute = false,
@@ -360,7 +368,7 @@ public class MusicService
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = @"C:\Users\dalqu\AppData\Local\Microsoft\WinGet\Packages\yt-dlp.yt-dlp_Microsoft.Winget.Source_8wekyb3d8bbwe\yt-dlp.exe",
+                FileName = YtDlpPath,
                 Arguments = $"-f bestaudio --get-url --no-playlist --no-warnings \"{url}\"",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -382,7 +390,7 @@ public class MusicService
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = @"C:\Users\dalqu\AppData\Local\Microsoft\WinGet\Packages\yt-dlp.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-N-123778-g3b55818764-win64-gpl\bin\ffmpeg.exe",
+                FileName = FfmpegPath,
                 Arguments = $"-hide_banner -loglevel panic -reconnect 1 -reconnect_streamed 1 " +
                             $"-reconnect_delay_max 5 -i \"{audioUrl}\" " +
                             $"-ac 2 -f s16le -ar 48000 pipe:1",
