@@ -9,6 +9,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Copy appsettings.json next to the published DLL so the bot finds it
+         regardless of where it's launched from (e.g. PM2 with cwd=./publish). -->
+    <None Update="appsettings.json" Condition="Exists('appsettings.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Discord.Net" Version="3.19.1" />
     <PackageReference Include="Discord.Net.Dave" Version="3.19.1" />
     <PackageReference Include="libdave" Version="1.1.1.7" />

@@ -14,8 +14,12 @@ public class Program
     public static async Task Main(string[] args)
     {
         var configuration = new ConfigurationBuilder()
-            .SetBasePath(Directory.GetCurrentDirectory())
+            .SetBasePath(AppContext.BaseDirectory)
             .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+            .AddJsonFile(
+                Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json"),
+                optional: true,
+                reloadOnChange: true)
             .AddEnvironmentVariables(prefix: "DISCORD_")
             .Build();
 
