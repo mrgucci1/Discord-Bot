@@ -58,16 +58,20 @@ if ! command -v dotnet >/dev/null 2>&1 || ! dotnet --list-sdks 2>/dev/null | gre
   chmod +x /tmp/dotnet-install.sh
   /tmp/dotnet-install.sh --channel 8.0 --install-dir "$HOME/.dotnet" --architecture "$DOTNET_ARCH"
 
-  # Persist PATH + DOTNET_ROOT
-  PROFILE="$HOME/.profile"
-  if ! grep -q 'DOTNET_ROOT' "$PROFILE" 2>/dev/null; then
-    {
-      echo ''
-      echo '# .NET SDK'
-      echo 'export DOTNET_ROOT="$HOME/.dotnet"'
-      echo 'export PATH="$DOTNET_ROOT:$PATH"'
-    } >> "$PROFILE"
-  fi
+  # Persist PATH + DOTNET_ROOT across login AND non-login shells.
+  # (~/.profile is only read by login shells; most SSH sessions on Pi OS
+  #  end up in a non-login interactive shell that reads ~/.bashrc.)
+  for rc in "$HOME/.profile" "$HOME/.bashrc"; do
+    [ -f "$rc" ] || touch "$rc"
+    if ! grep -q 'DOTNET_ROOT' "$rc" 2>/dev/null; then
+      {
+        echo ''
+        echo '# .NET SDK'
+        echo 'export DOTNET_ROOT="$HOME/.dotnet"'
+        echo 'export PATH="$DOTNET_ROOT:$PATH"'
+      } >> "$rc"
+    fi
+  done
   export DOTNET_ROOT="$HOME/.dotnet"
   export PATH="$DOTNET_ROOT:$PATH"
 else
