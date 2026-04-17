@@ -37,13 +37,11 @@ public class Program
                 | GatewayIntents.MessageContent,
             LogLevel = LogSeverity.Info,
             // DAVE (end-to-end voice encryption) requires the native `libdave`
-            // binary, which currently only ships for Windows / macOS / linux-x64.
-            // It has no linux-arm64 / linux-arm build, so enabling it on a
-            // Raspberry Pi throws "libdave couldn't be found in your environment".
-            // Opt in via the ENABLE_DAVE env var on platforms that support it.
+            // binary, which needs glibc 2.38+ / GLIBCXX_3.4.32 (Debian 13 / Ubuntu 24.04+).
+            // On older systems (e.g. Raspberry Pi OS bookworm) set DISABLE_DAVE=true.
             EnableVoiceDaveEncryption =
-                string.Equals(
-                    Environment.GetEnvironmentVariable("ENABLE_DAVE"),
+                !string.Equals(
+                    Environment.GetEnvironmentVariable("DISABLE_DAVE"),
                     "true",
                     StringComparison.OrdinalIgnoreCase)
         };
