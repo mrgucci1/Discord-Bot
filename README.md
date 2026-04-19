@@ -34,6 +34,8 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
+> **Recommended OS**: Ubuntu Server 24.04 LTS (64-bit) — required for Discord DAVE voice encryption (needs glibc ≥ 2.38).
+
 That's it. When it finishes:
 
 ```bash
@@ -46,9 +48,8 @@ pm2 save                  # persist the running app list
 ```
 
 **Supported hardware** (script auto-detects architecture):
-- Raspberry Pi 3 / 4 / 5 (64-bit Raspberry Pi OS recommended) — `arm64`
+- Raspberry Pi 3 / 4 / 5 (64-bit Ubuntu Server 24.04 recommended) — `arm64`
 - Raspberry Pi Zero 2 W (64-bit OS) — `arm64`
-- Older 32-bit Pis — `arm` (ARMv7)
 - Any x86_64 Debian/Ubuntu server or desktop
 
 **Updating later:**
@@ -319,7 +320,9 @@ Discord-Bot/
 | Bot doesn't join voice channel | Ensure the bot has **Connect** and **Speak** permissions in the voice channel |
 | Audio cuts out or stutters | Check your network connection and server resources; the bot needs a stable connection |
 | PM2 doesn't restart on reboot | Run `pm2 startup` and follow the printed command, then `pm2 save` |
-| Raspberry Pi build fails | Make sure you're on 64-bit Pi OS for Pi 3/4/5; the 32-bit ARM SDK is also supported by `setup.sh` |
+| Raspberry Pi build fails | Make sure you're on 64-bit OS for Pi 3/4/5 |
+| DAVE voice encryption fails | Use Ubuntu Server 24.04+ (glibc ≥ 2.38). Pi OS Bookworm's glibc 2.36 is too old. |
+| PM2 says "Script not found: dotnet" | The ecosystem.config.js resolves `~/.dotnet/dotnet` automatically. Run `pm2 delete discord-bot && pm2 start ecosystem.config.js && pm2 save`. |
 
 ## License
 
