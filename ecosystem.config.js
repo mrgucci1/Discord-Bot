@@ -26,6 +26,8 @@ module.exports = {
         // `--update-env` after exporting DISCORD_BOT_TOKEN in your shell:
         //   export DISCORD_BOT_TOKEN=xxxxx
         //   pm2 restart discord-bot --update-env
+        // To fix YouTube bot-detection blocks, set the path to a cookies file:
+        //   YTDLP_COOKIES_PATH: path.join(os.homedir(), 'cookies.txt')
       },
       out_file: './logs/out.log',
       error_file: './logs/err.log',

@@ -39,6 +39,12 @@ public class MusicService
         Environment.GetEnvironmentVariable("YTDLP_PATH") ?? "yt-dlp";
     private static readonly string FfmpegPath =
         Environment.GetEnvironmentVariable("FFMPEG_PATH") ?? "ffmpeg";
+    // Optional: path to a Netscape-format cookies file to pass to yt-dlp.
+    // Set YTDLP_COOKIES_PATH to avoid YouTube bot-detection blocks.
+    private static readonly string? YtDlpCookiesArg =
+        Environment.GetEnvironmentVariable("YTDLP_COOKIES_PATH") is { Length: > 0 } p
+            ? $"--cookies \"{p}\""
+            : null;
 
     public MusicService(ILogger<MusicService> logger)
     {
@@ -231,10 +237,11 @@ public class MusicService
         int seekSeconds,
         CancellationToken cancellationToken)
     {
-        var ytdlpArgs = $"-f bestaudio --no-playlist --no-warnings -o - \"{url}\"";
+        var cookies = YtDlpCookiesArg is not null ? $"{YtDlpCookiesArg} " : "";
+        var ytdlpArgs = $"{cookies}-f bestaudio --no-playlist --no-warnings -o - \"{url}\"";
         if (seekSeconds > 0)
         {
-            ytdlpArgs = $"-f bestaudio --no-playlist --no-warnings --download-sections \"*{seekSeconds}-\" -o - \"{url}\"";
+            ytdlpArgs = $"{cookies}-f bestaudio --no-playlist --no-warnings --download-sections \"*{seekSeconds}-\" -o - \"{url}\"";
         }
 
         using var ytdlp = new Process
@@ -327,7 +334,7 @@ public class MusicService
             StartInfo = new ProcessStartInfo
             {
                 FileName = YtDlpPath,
-                Arguments = $"--print title --print webpage_url --print duration_string " +
+                Arguments = $"{YtDlpCookiesArg ?? ""}{(YtDlpCookiesArg is not null ? " " : "")}--print title --print webpage_url --print duration_string " +
                             $"--no-playlist --no-warnings -f bestaudio \"{searchQuery}\"",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
