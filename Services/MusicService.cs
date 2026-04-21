@@ -237,89 +237,92 @@ public class MusicService
         int seekSeconds,
         CancellationToken cancellationToken)
     {
-        var cookies = YtDlpCookiesArg is not null ? $"{YtDlpCookiesArg} " : "";
-        var ytdlpArgs = $"{cookies}-f bestaudio --no-playlist --no-warnings -o - \"{url}\"";
-        if (seekSeconds > 0)
-        {
-            ytdlpArgs = $"{cookies}-f bestaudio --no-playlist --no-warnings --download-sections \"*{seekSeconds}-\" -o - \"{url}\"";
-        }
-
-        using var ytdlp = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = YtDlpPath,
-                Arguments = ytdlpArgs,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            }
-        };
-
-        using var ffmpeg = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = FfmpegPath,
-                Arguments = "-hide_banner -loglevel warning -i pipe:0 -ac 2 -f s16le -ar 48000 pipe:1",
-                UseShellExecute = false,
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            }
-        };
-
-        ytdlp.Start();
-        ffmpeg.Start();
-
-        // Log ffmpeg stderr in background
-        _ = Task.Run(async () =>
-        {
-            var err = await ffmpeg.StandardError.ReadToEndAsync();
-            if (!string.IsNullOrWhiteSpace(err))
-                _logger.LogWarning("ffmpeg stderr: {Error}", err);
-        });
-
-        // Log yt-dlp stderr in background
-        _ = Task.Run(async () =>
-        {
-            var err = await ytdlp.StandardError.ReadToEndAsync();
-            if (!string.IsNullOrWhiteSpace(err))
-                _logger.LogWarning("yt-dlp stderr: {Error}", err);
-        });
-
-        // Pipe yt-dlp stdout to ffmpeg stdin in background
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await ytdlp.StandardOutput.BaseStream.CopyToAsync(ffmpeg.StandardInput.BaseStream, cancellationToken);
-            }
-            catch (OperationCanceledException) { }
-            finally
-            {
-                try { ffmpeg.StandardInput.Close(); } catch { }
-            }
-        });
-
-        await using var discord = audioClient.CreatePCMStream(AudioApplication.Music);
-
+        // Download to a temp file first so that connection resets / retries during
+        // download don't cause gaps in the audio stream that make Discord drop the
+        // voice connection.
+        var tempFile = Path.Combine(Path.GetTempPath(), $"discord-bot-{Guid.NewGuid():N}.webm");
         try
         {
-            var buffer = new byte[4096];
-            int bytesRead;
-            while ((bytesRead = await ffmpeg.StandardOutput.BaseStream.ReadAsync(buffer, cancellationToken)) > 0)
+            var cookies = YtDlpCookiesArg is not null ? $"{YtDlpCookiesArg} " : "";
+            var ytdlpArgs = $"{cookies}-f bestaudio --no-playlist --no-warnings -o \"{tempFile}\" \"{url}\"";
+            if (seekSeconds > 0)
             {
-                await discord.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+                ytdlpArgs = $"{cookies}-f bestaudio --no-playlist --no-warnings --download-sections \"*{seekSeconds}-\" -o \"{tempFile}\" \"{url}\"";
+            }
+
+            using (var ytdlp = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = YtDlpPath,
+                    Arguments = ytdlpArgs,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = false,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                }
+            })
+            {
+                ytdlp.Start();
+
+                _ = Task.Run(async () =>
+                {
+                    var err = await ytdlp.StandardError.ReadToEndAsync();
+                    if (!string.IsNullOrWhiteSpace(err))
+                        _logger.LogWarning("yt-dlp stderr: {Error}", err);
+                });
+
+                await ytdlp.WaitForExitAsync(cancellationToken);
+
+                if (ytdlp.ExitCode != 0)
+                    throw new InvalidOperationException($"yt-dlp exited with code {ytdlp.ExitCode}");
+            }
+
+            // Stream the downloaded file through ffmpeg into Discord
+            var ffmpegArgs = $"-hide_banner -loglevel warning -i \"{tempFile}\" -ac 2 -f s16le -ar 48000 pipe:1";
+
+            using var ffmpeg = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = FfmpegPath,
+                    Arguments = ffmpegArgs,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                }
+            };
+
+            ffmpeg.Start();
+
+            _ = Task.Run(async () =>
+            {
+                var err = await ffmpeg.StandardError.ReadToEndAsync();
+                if (!string.IsNullOrWhiteSpace(err))
+                    _logger.LogWarning("ffmpeg stderr: {Error}", err);
+            });
+
+            await using var discord = audioClient.CreatePCMStream(AudioApplication.Music);
+
+            try
+            {
+                var buffer = new byte[4096];
+                int bytesRead;
+                while ((bytesRead = await ffmpeg.StandardOutput.BaseStream.ReadAsync(buffer, cancellationToken)) > 0)
+                {
+                    await discord.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+                }
+            }
+            finally
+            {
+                await discord.FlushAsync(CancellationToken.None);
+                if (!ffmpeg.HasExited) ffmpeg.Kill();
             }
         }
         finally
         {
-            await discord.FlushAsync(CancellationToken.None);
-            if (!ffmpeg.HasExited) ffmpeg.Kill();
-            if (!ytdlp.HasExited) ytdlp.Kill();
+            try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { }
         }
     }
 
